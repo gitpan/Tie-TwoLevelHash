@@ -1,8 +1,12 @@
 package Tie::TwoLevelHash;
 
-# $Id: TwoLevelHash.pm,v 1.1 1998/10/27 15:43:47 kmeltz Exp kmeltz $
+# $Id: TwoLevelHash.pm,v 1.2 1998/10/30 13:52:04 kmeltz Exp kmeltz $
 
 # $Log: TwoLevelHash.pm,v $
+# Revision 1.2  1998/10/30 13:52:04  kmeltz
+# Fixed FETCH so it will return correctly when doing %foo = %bar; when using a tie to a HoH's. Still not working right for hash in the HoH's, so the GetHash method stays.
+#
+#
 # Revision 1.1  1998/10/27 15:43:47  kmeltz
 # Changed croaks to carps for Hash Invalid warning. May need to continue script, so let script die and module return undef.
 # Changed CLEAR to not erase TLH file when clearing hash in HoH's, or resetting it.
@@ -14,10 +18,10 @@ use FileHandle;
 use Carp;
 use vars qw($VERSION @ISA @EXPORT);
 @ISA = qw(Exporter); 
-@EXPORT = qw(GetHash);
+@EXPORT = qw();
 use strict;
 
-($VERSION = substr(q$Revision: 1.1 $, 10)) =~ s/\s+$//;
+($VERSION = substr(q$Revision: 1.2 $, 10)) =~ s/\s+$//;
 
 sub TIEHASH {
 	my $self = shift;
@@ -89,6 +93,7 @@ sub TIEHASH {
 if ($oneHash ne "" ) { $node->{SINGLEHASH} = 1; }else{$node->{SINGLEHASH} = 0;}
 
 	return bless $node => $self;
+	
 }
 
 #-------------------------------------------------------#
@@ -96,16 +101,20 @@ if ($oneHash ne "" ) { $node->{SINGLEHASH} = 1; }else{$node->{SINGLEHASH} = 0;}
 sub FETCH { 
 	my $self = shift;
 	my $key	= shift;
-	#my $val = shift || ""; # decided not to impelemt this (yet)
 	
 	# If showing one hash
 	if ($self->{SINGLEHASH}) {
-	        unless (exists $self->{BIHASH}->{$key}) {
+		my $uniname = $self->{UNIHASHNAME};
+	if ($key eq $uniname) {
+		my %return = $self->GetHash();
+		return \%return;
+	}
+	        unless (exists $self->{BIHASH}->{$uniname}->{$key}) {
 			carp "Hash invalid";
 			return undef;
             	 }
-		if (defined $self->{BIHASH}->{$key}) {
-        		return $self->{BIHASH}->{$key};
+		if (defined $self->{BIHASH}->{$uniname}->{$key}) {
+        		return $self->{BIHASH}->{$uniname}->{$key};
        		 } else {
         	       return carp("Fetch failed for $key");
        		 }
@@ -384,7 +393,6 @@ if ($records[0] && $records[0] =~ /^#/) {
 return ($comment, %HoH);
 } # end _get_HoH
 
-
 #-----------------------------------------------------------#
 
 sub GetHash {
@@ -498,6 +506,12 @@ script to the tied hash, it makes that change in your file.
 	$file = "foo.tlh";
 	tie(%hash, 'Tie::TwoLevelHash', $file, 'rw');
 
+	# Set %foo to equal %hash
+	%foo = %hash;
+
+	# Grab value of BAR in hash FOO into $bar
+	$bar = $hash{FOO}->{BAR};
+
 	# Set existing value
 	$hash{PEOPLE} = {You => "me"};
 
@@ -566,6 +580,12 @@ script to the tied hash, it makes that change in your file.
 =over 5
 
 	tie(%hash, 'Tie::TwoLevelHash', "$file, PEOPLE", 'rw');
+	
+	# Set %foo to equal %hash
+	%foo = %hash;
+
+	# Grab value of FOO into $bar
+	$bar = $hash{FOO};
 
 	# Set existing value
 	$hash{Cat} = "Gizmo";
@@ -617,11 +637,10 @@ the new values.
 =over 5
 
 	# Tie your hash, but use a scaler to be object-like 
-	$foo = tie(%hash, "Tie::TwoLevelHash" , $file, 'rw');
-
-	# Now, we will call the method that exports the hash
-	# We will import it into the hash %bar
-	%bar = $foo->GetHash;
+	tie(%hash, "Tie::TwoLevelHash" , $file, 'rw');
+	
+	# Make untied copy of your tied HoH
+	%bar = %hash;
 
 Now, you can generally use %bar as you would any other hash-o-hashes. Above we
 tied to the entire hash-o-hashes, so %bar will be filled with hash
@@ -653,6 +672,10 @@ your TLH file just yet. You can do this like:
 
 =over 5
 
+This way is slightly different. Right now, trying to make a copy of your
+hash the same way you do above, does not copy the hash correctly. So,
+there is a method, B<GetHash> , which will export it correctly.
+
 	# Tie your hash, but use a scaler to be object-like 
 	$foo = tie(%hash, "Tie::TwoLevelHash" , "$file, PEOPLE", 'rw');
 
@@ -679,6 +702,7 @@ your tie:
 
 
 =back
+
 
 =head1 CHANGING VALUES
 
@@ -737,20 +761,18 @@ software, use at your own risk.
 
 =head1 VERSION
 
-Version $Revision: 1.1 $  $Date: 1998/10/27 15:43:47 $
+Version $Revision: 1.2 $  $Date: 1998/10/30 13:52:04 $
 
 =head1 CHANGES
 
 $Log: TwoLevelHash.pm,v $
+Revision 1.2  1998/10/30 13:52:04  kmeltz
+Fixed FETCH so it will return correctly when doing %foo = %bar; when using a tie to a HoH's. Still not working right for hash in the HoH's, so the GetHash method stays.
 
 Revision 1.1  1998/10/27 15:43:47  kmeltz
-
 Changed croaks to carps for Hash Invalid warning. May need to continue script, so let script die and module return undef.
-
 Changed CLEAR to not erase TLH file when clearing hash in HoH's, or resetting it.
-
 Added exported method GetHash. This allows for user to import hash values into their script, and change values before setting them to TLH file.
-
 Changed a bunch in the POD.
 
 

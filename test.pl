@@ -31,6 +31,9 @@ my $file = "test.tlh";
 
 	# 4: store a new hash 
 	&report_result($hash{TEST2} = {TEST4 => "ok", TEST => "OK"} , $! );
+	
+	# Get ready for next section
+	$hash{PEOPLE} = {TOTEST => "oK"};
 
 	untie %hash;
 	
