@@ -1,14 +1,23 @@
 package Tie::TwoLevelHash;
 
-# $Id: TwoLevelHash.pm,v 1.0 1998/10/20 06:08:15 kmeltz Exp $
+# $Id: TwoLevelHash.pm,v 1.1 1998/10/27 15:43:47 kmeltz Exp kmeltz $
 
-use strict;
+# $Log: TwoLevelHash.pm,v $
+# Revision 1.1  1998/10/27 15:43:47  kmeltz
+# Changed croaks to carps for Hash Invalid warning. May need to continue script, so let script die and module return undef.
+# Changed CLEAR to not erase TLH file when clearing hash in HoH's, or resetting it.
+# Added exported method GetHash. This allows for user to import hash values into their script, and change values before setting them to TLH file.
+# Changed a bunch in the POD.
+#
+
 use FileHandle;
 use Carp;
-use vars qw(@ISA $VERSION);
+use vars qw($VERSION @ISA @EXPORT);
 @ISA = qw(Exporter); 
+@EXPORT = qw(GetHash);
+use strict;
 
-$VERSION = '1.0';
+($VERSION = substr(q$Revision: 1.1 $, 10)) =~ s/\s+$//;
 
 sub TIEHASH {
 	my $self = shift;
@@ -92,7 +101,8 @@ sub FETCH {
 	# If showing one hash
 	if ($self->{SINGLEHASH}) {
 	        unless (exists $self->{BIHASH}->{$key}) {
-			croak "Hash invalid";
+			carp "Hash invalid";
+			return undef;
             	 }
 		if (defined $self->{BIHASH}->{$key}) {
         		return $self->{BIHASH}->{$key};
@@ -103,7 +113,8 @@ sub FETCH {
 	
 	# If showing HoH's
         unless (exists $self->{BIHASH}->{$key}) {
-		croak "Hash invalid";
+		carp "Hash invalid";
+		return undef;
              }
 	if (defined $self->{BIHASH}->{$key}) {
         	return $self->{BIHASH}->{$key};
@@ -230,26 +241,34 @@ sub DELETE {
 
 #-------------------------------------------------------#
 
-sub CLEAR {
+sub CLEAR { 
 	my ($self) = shift;
 	my ($key);
 	my ($file) = $self->{'PATH'};
+
+	if ($self->{SINGLEHASH}) {
+		foreach $key (keys %{$self->{BIHASH}}) {
+			$self->DELETE($key);
+		}
+	return 1;
+	}
 	foreach $key (keys %{$self->{BIHASH}}) {
         	$self->DELETE($key);
         }
-	if ($self->{SINGLEHASH}) {
-		foreach $key (keys %{$self->{UNIHASH}}) {
-			$self->DELETE($key);
-		}
-	}
+
+
 	# Erase file, since it is being cleared
+
+	unless ($self->{SINGLEHASH}) {
 	my $fh;
-	unless ($fh = new FileHandle(">$file")) {
-	#unless ($fh = new FileHandle("$file")) { # DEBUG
-		croak ("Can't open $file: $!");
-	}
-	# File erased
+		unless ($fh = new FileHandle(">$file")) {
+		#unless ($fh = new FileHandle("$file")) { # DEBUG
+			croak ("Can't open $file: $!");
+		}
 	close $fh;
+	}
+	# File erased, if tied to HoH
+
 }
 
 #-------------------------------------------------------#
@@ -365,6 +384,24 @@ if ($records[0] && $records[0] =~ /^#/) {
 return ($comment, %HoH);
 } # end _get_HoH
 
+
+#-----------------------------------------------------------#
+
+sub GetHash {
+	my ($self) = shift;
+	my ($hash, %hash);
+	my $name = $self->{UNIHASHNAME} if ($self->{UNIHASHNAME} ne "");
+	
+	if (defined($name)) {
+		$hash = $self->{BIHASH}->{$name};
+	}else{
+		$hash = $self->{BIHASH};
+	}
+	%hash = %$hash;
+
+	return %hash;
+}
+
 #-----------------------------------------------------------#
 
 1;
@@ -383,7 +420,7 @@ Tie::TwoLevelHash - Tied interface to multi-dimensional (Two-Level) hash files
 
  $hash{PEOPLE} = {YOU => "me"}; # Set value YOU in hash PEOPLE withing hash %hash to "me"
 	
- # Tie to hash B<within> a Hash-o-hashes
+ # Tie to hash within a Hash-o-hashes
  use Tie::TwoLevelHash:
  tie (%hash, 'Tie::TwoLevelHash', "$file, <SingHash>" 'rw');  # Open in read/write mode
 
@@ -393,6 +430,9 @@ Tie::TwoLevelHash - Tied interface to multi-dimensional (Two-Level) hash files
  
  tie (%hash, 'Tie::TwoLevelHash', $file);    # Defaults to read-only mode
 
+ ...
+
+ untie %hash;
 
 =head1 DESCRIPTION
 
@@ -525,7 +565,7 @@ script to the tied hash, it makes that change in your file.
 
 =over 5
 
-	tie(%hash, 'TwoLevelHash', "$file, PEOPLE", 'rw');
+	tie(%hash, 'Tie::TwoLevelHash', "$file, PEOPLE", 'rw');
 
 	# Set existing value
 	$hash{Cat} = "Gizmo";
@@ -563,6 +603,83 @@ The resulting TLH file would be:
 
 =back
 
+=head2 Getting the value of your tied hash to your local script
+
+When you are tied to the hash, tie doesn't actually export the values in that
+hash (or HoH) by default. So, B<Tie::TwoLevelHash> exports a method that allows
+you to muck around with the hash's actual values within your script. This can also be
+useful if, for whatever reason, you don't want to write out the hash file whenever
+you make a change, and wish to do it at a later time, while still working with
+the new values.
+
+=head3 With a hash-o-hashes
+
+=over 5
+
+	# Tie your hash, but use a scaler to be object-like 
+	$foo = tie(%hash, "Tie::TwoLevelHash" , $file, 'rw');
+
+	# Now, we will call the method that exports the hash
+	# We will import it into the hash %bar
+	%bar = $foo->GetHash;
+
+Now, you can generally use %bar as you would any other hash-o-hashes. Above we
+tied to the entire hash-o-hashes, so %bar will be filled with hash
+references. You could do something like the following to list all the
+hash names, and values:
+
+	foreach $key (keys %bar) {
+	print "$key\n";
+		$foo = $bar{$key};
+		%foo = %$foo; # Deref the lower hash
+		foreach $fookey (keys %foo) {
+			print "\t$fookey\: $foo{$fookey}\n";
+		}
+	}
+
+Now, say you wanted to change one of the values, but not change it in
+your TLH file just yet. You can do this like:
+	
+
+	# This line changes the value in %bar
+	$bar{PEOPLE}->{Comedian} = "Sienfeld";
+	
+	# This line writes the new value to your tied hash (and TLH)
+	$hash{PEOPLE} = $bar{PEOPLE};
+
+=back
+
+=head3 With a hash in a hash-o-hashes
+
+=over 5
+
+	# Tie your hash, but use a scaler to be object-like 
+	$foo = tie(%hash, "Tie::TwoLevelHash" , "$file, PEOPLE", 'rw');
+
+	# Now, we will call the method that exports the hash
+	# We will import it into the hash %bar
+	%bar = $foo->GetHash;
+
+Now, you can generally use %bar as you would any other hash. Above we
+tied only to one hash in the hash-o-hashes, so %bar will be one hash. 
+You could do something like the following to list all the hash names, and values:
+
+	foreach $key (keys %goo) {
+		print "$key\: $goo{$key}\n";
+	}
+
+Now, if you wanted to change values before writting the new TLH file out via
+your tie:
+
+	# This line will set key Comedian to Sienfeld locally
+	$bar{Comedian} = "Sienfeld";
+
+	# Now, we write out the new hash
+	%hash = %bar;
+
+
+=back
+
 =head1 CHANGING VALUES
 
 I won't go into how to change value in a hash. When you are tying to 
@@ -572,17 +689,24 @@ new values (anything that would call STORE).
 
 Due to tie() not being very friendly while tying to HoH's, you can I<not> make 
 a call such as 
+
 $hash{FOO}->{BAR} = "zog";
+
 when tied to a HoH's. So, you must make this call like:
+
 $hash{FOO} = {BAR => "zog"};
 
 You can see how/when to do this in the EXAMPLE section.
 When you want to delete a key in a hash, use undef like:
+
 $hash{FOO} = {BAR => undef};
+
 or, when tying to single hash:
+
 $hash{BAR} = undef;
 
 %hash = (); 
+
 This will CLEAR the hash, as well as remove ALL data from the file you are tied to.
 Be B<sure> you want to do this when you call it.
 
@@ -613,7 +737,22 @@ software, use at your own risk.
 
 =head1 VERSION
 
-Version 1.0    19 Oct 1998
+Version $Revision: 1.1 $  $Date: 1998/10/27 15:43:47 $
+
+=head1 CHANGES
+
+$Log: TwoLevelHash.pm,v $
+
+Revision 1.1  1998/10/27 15:43:47  kmeltz
+
+Changed croaks to carps for Hash Invalid warning. May need to continue script, so let script die and module return undef.
+
+Changed CLEAR to not erase TLH file when clearing hash in HoH's, or resetting it.
+
+Added exported method GetHash. This allows for user to import hash values into their script, and change values before setting them to TLH file.
+
+Changed a bunch in the POD.
+
 
 =head1 AVAILABILITY
 
@@ -621,22 +760,11 @@ The latest version of Tie::TwoLevelHash should always be available from:
 
     $CPAN/modules/by-authors/id/K/KM/KMELTZ/
 
-Visit <URL:http://www.perl.com/CPAN/> to find a CPAN
+Visit http://www.perl.com/CPAN/ to find a CPAN
 site near you.
-
-=head1 ACK's
-
-Milivoj Ivkovic [mi@alma.ch]
-
-Joshua Chamas [chamas@alumni.stanford.org]
-
-Matthew Sergeant (EML) [Matthew.Sergeant@eml.ericsson.se]
-
-Thanks to these people for sharing idea's and/or prodding me
-to make this module better.
 
 =head1 SEE ALSO
 
-perl(1), perlfunc(1), perltie(1)
+L<perl(1)>, L<perlfunc(1)>, L<perltie(1)>
 
 =cut
